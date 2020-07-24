@@ -1,0 +1,123 @@
+package com.db.training.mortgage.service;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.RequestBody;
+import com.db.training.mortgage.dto.UserRequestDto;
+import com.db.training.mortgage.entity.Loan;
+import com.db.training.mortgage.entity.LoanDetail;
+import com.db.training.mortgage.entity.Property;
+import com.db.training.mortgage.entity.PropertyValue;
+import com.db.training.mortgage.entity.User;
+import com.db.training.mortgage.exception.LoanNotFoundException;
+import com.db.training.mortgage.exception.UserNotFoundException;
+import com.db.training.mortgage.repository.LoanDetailRepository;
+import com.db.training.mortgage.repository.LoanRepository;
+import com.db.training.mortgage.repository.PropertyRepository;
+import com.db.training.mortgage.repository.PropertyValueRepository;
+import com.db.training.mortgage.repository.UserRepository;
+/**
+ *this class is for mortgage related functionality 
+ * @author Venkanna 
+ *
+ */
+@Service
+public class MortgageService {
+private static Logger logger = LoggerFactory.getLogger(MortgageService.class);
+	
+	@Autowired
+	UserRepository userRepository;
+	@Autowired
+	PropertyRepository propertyRepository;
+	@Autowired
+	PropertyValueRepository propertyValueRepository;
+	@Autowired
+	LoanRepository loanRepository;
+	@Autowired
+	LoanDetailRepository loanDetailRepository;
+	
+	/**
+	 * this method is for displaying list of loans once user submit his income details,etc.
+	 * @param userRequestDto
+	 * @return LoanDetails
+	 * @exception LoanNotFoundException if user is not eligible for any loan
+	 * @exception Exception if Server is not available
+	 */
+	public List<Loan> applyMortgages(UserRequestDto userRequestDto) {
+		logger.info("In MortgageService applyMortgages api : " + userRequestDto.getPanNumber());
+		User user = new User();
+		Property property = new Property();
+		BeanUtils.copyProperties(userRequestDto, user);
+		userRepository.save(user);
+		property.setUserId(user.getUserId());
+		BeanUtils.copyProperties(userRequestDto, property);
+		propertyRepository.save(property);
+		
+		double baseAmount = calculateOffer(user.getSalary(), user.getSecondIncome(), user.getOtherIncome());
+		
+		double area = property.getPropertyArea();
+		String propertyPincode = property.getPropertyPincode();
+		
+		PropertyValue propertyValuereturned = propertyValueRepository.findByPincode(propertyPincode);
+		double squareFeet = propertyValuereturned.getSquareFeetValue();
+		double propertyCost = propertyValue(area,squareFeet);
+		
+		List<Loan> loanList = loanRepository.getAllLoanAmountBasedOnPropertyCost(propertyCost);
+		List<Loan> loanList2 = loanRepository.getAllLoanAmountBasedOnBaseAmount(baseAmount);
+		
+		List<Loan> arraylist = new ArrayList<>();
+		
+		for(Loan loan:loanList2) {
+			Integer loanId = loan.getLoanId();
+			for(Loan loan2:loanList) {
+					if(loan2.getLoanId().equals(loanId))
+					arraylist.add(loan2);
+			}
+		}
+		return arraylist;
+	}
+	
+	
+	private double calculateOffer(double salary,double secondIncome,double otherIncome) {
+		return (0.4)*(salary+secondIncome+otherIncome);
+	}
+	
+	private double propertyValue(double area,double  squareFeetValue) {
+		return (0.8)*(area*squareFeetValue);
+	}
+
+	/**
+	 * this method is for selecting loan option
+	 * @param userId
+	 * @param loanId
+	 * @return String
+	 * @exception Exception Server not available
+	 */
+	public String selectLoan(Integer userId, Integer loanId) throws LoanNotFoundException, UserNotFoundException {
+		logger.info("In MortgageService selectLoan api : " + userId+" "+loanId);
+		int count = 0;
+		List<LoanDetail> loanDetails = loanDetailRepository.findByUserId(userId);
+		
+		for(LoanDetail loanDetail:loanDetails) {
+			if(loanId == loanDetail.getLoanId())
+				count++;
+		}
+		
+		if(count==0) {
+		LoanDetail loanDetail = new LoanDetail();
+		loanDetail.setUserId(userId);
+		loanDetail.setLoanId(loanId);
+		loanDetailRepository.save(loanDetail);
+		return "Mortgage Loan Applied SuccessFully";
+		}else
+			return null;
+		
+	}
+
+}
